@@ -7,4 +7,6 @@ export const inputState = {
   run: false,
   /** one-shot jump request (keyboard Space or touch button) */
   jumpQueued: false,
+  /** one-shot slide-tackle request (F key or touch button) */
+  tackleQueued: false,
 }

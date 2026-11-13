@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { AvatarConfig } from '../state/avatarStore'
 import { useAvatar } from '../state/avatarStore'
 import { playerState } from '../state/playerState'
+import { applyBallState } from '../world/balls'
 
 /*
  * Multiplayer client.
@@ -23,7 +24,7 @@ export interface RemotePlayer {
   buf: number[][]
   lastSeen: number
   /** interpolated render state (read by RemoteAvatar every frame) */
-  render: { x: number; y: number; z: number; facing: number; speed: number; airborne: boolean; visible: boolean }
+  render: { x: number; y: number; z: number; facing: number; speed: number; airborne: boolean; sliding: boolean; visible: boolean }
   bubble: { text: string; until: number } | null
 }
 
@@ -100,7 +101,7 @@ function addRemote(id: number, name: string, cfg: Partial<AvatarConfig>) {
   } else {
     remotes.set(id, {
       id, name, cfg, buf: [], lastSeen: performance.now(), bubble: null,
-      render: { x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, visible: false },
+      render: { x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, sliding: false, visible: false },
     })
   }
   useNet.setState({ ids: [...remotes.keys()] })
@@ -144,6 +145,18 @@ function handle(msg: Record<string, unknown>) {
       }
       break
     }
+    case 'ball': {
+      const age = Math.max(0, (Date.now() - ((msg.ts as number) ?? Date.now())) / 1000)
+      applyBallState(msg.i as number, msg.p as number[], msg.v as number[], Math.min(age, 1))
+      break
+    }
+    case 'balls': {
+      // late joiner: replay every ball from its last touch up to now
+      for (const b of msg.b as { i: number; p: number[]; v: number[]; ts: number }[]) {
+        applyBallState(b.i, b.p, b.v, (Date.now() - b.ts) / 1000)
+      }
+      break
+    }
     case 'chat': {
       const id = msg.id as number
       const self = id === useNet.getState().myId
@@ -167,7 +180,7 @@ function sendState() {
     p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
     f: +playerState.facing.toFixed(2),
     v: +playerState.speed.toFixed(2),
-    a: playerState.airborne ? 1 : 0,
+    a: playerState.sliding ? 2 : playerState.airborne ? 1 : 0,
     z: playerState.zone,
   })
   const now = performance.now()
@@ -225,6 +238,13 @@ export function disconnect() {
   ws = null
 }
 
+/** Tell the channel that we touched ball `i` (position + new velocity). */
+export function sendBall(i: number, p: { x: number; y: number; z: number }, v: { x: number; y: number; z: number }) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  const r = (n: number) => Math.round(n * 1000) / 1000
+  ws.send(JSON.stringify({ t: 'ball', i, p: [r(p.x), r(p.y), r(p.z)], v: [r(v.x), r(v.y), r(v.z)] }))
+}
+
 export function sendChat(text: string) {
   const t = text.trim().slice(0, 80)
   if (!t || !ws || ws.readyState !== WebSocket.OPEN) return false
@@ -272,7 +292,9 @@ export function updateRemotes() {
     df = Math.atan2(Math.sin(df), Math.cos(df))
     out.facing = a[4] + df * k
     out.speed = a[5] + (c[5] - a[5]) * k
-    out.airborne = (k < 0.5 ? a[6] : c[6]) === 1
+    const flag = k < 0.5 ? a[6] : c[6]
+    out.airborne = flag === 1
+    out.sliding = flag === 2
     if (r.bubble && r.bubble.until < now) r.bubble = null
   }
 }

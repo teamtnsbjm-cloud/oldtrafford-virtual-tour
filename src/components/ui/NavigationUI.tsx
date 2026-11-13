@@ -43,13 +43,15 @@ function Welcome() {
             <li>왼쪽 조이스틱: 이동</li>
             <li>화면 드래그: 카메라 회전</li>
             <li>두 손가락 벌리기: 확대/축소</li>
-            <li>점프 · 달리기 · 살펴보기 버튼</li>
+            <li>달리기 버튼: 누르고 있는 동안 달리기</li>
+            <li>점프 · 태클 버튼, 축구공은 몸으로 몰고 가기</li>
           </ul>
         ) : (
           <ul className="welcome-keys">
             <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동</li>
             <li><kbd>Space</kbd> 점프</li>
-            <li><kbd>Shift</kbd> 달리기</li>
+            <li><kbd>F</kbd> 슬라이딩 태클</li>
+            <li><kbd>Shift</kbd> 달리기 (누르는 동안)</li>
             <li><kbd>마우스</kbd> 카메라 회전</li>
             <li><kbd>휠</kbd> 카메라 거리</li>
             <li><kbd>E</kbd> 살펴보기</li>
@@ -237,7 +239,6 @@ export function NavigationUI() {
           <kbd>E</kbd> 살펴보기 · {focused.title}
         </div>
       )}
-      {focused && !infoId && touch && <div className="prompt">{focused.title} · 살펴보기 버튼</div>}
 
       {!touch && !locked && !infoId && !customizing && (
         <button className="unlock-hint" onClick={requestLock}>
@@ -250,6 +251,7 @@ export function NavigationUI() {
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동</span>
           <span><kbd>Shift</kbd> 달리기</span>
           <span><kbd>Space</kbd> 점프</span>
+          <span><kbd>F</kbd> 태클</span>
           <span><kbd>마우스</kbd> 카메라 회전</span>
           <span><kbd>휠</kbd> 줌</span>
           <span><kbd>E</kbd> 상호작용</span>

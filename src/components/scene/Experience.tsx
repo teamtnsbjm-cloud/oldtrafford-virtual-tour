@@ -11,6 +11,7 @@ import { MegaStore } from './MegaStore'
 import { StadiumExterior } from './StadiumExterior'
 import { StadiumInterior } from './StadiumInterior'
 import { StadiumPitch } from './StadiumPitch'
+import { Balls } from './Balls'
 import { StadiumSeating } from './StadiumSeating'
 
 /**
@@ -30,6 +31,7 @@ export function Experience() {
       <StadiumExterior />
       <StadiumSeating />
       <StadiumPitch match={match} />
+      <Balls />
       <StadiumInterior />
       <MegaStore />
       {/* order matters: physics → camera → avatar pose */}

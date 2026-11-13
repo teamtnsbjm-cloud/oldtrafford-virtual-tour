@@ -7,8 +7,8 @@ import { useIsTouch } from './useIsTouch'
 const RADIUS = 52
 
 /**
- * Touch controls: a virtual joystick (left), jump / run / look-at buttons
- * (right). Camera orbit + pinch zoom are handled on the canvas itself by
+ * Touch controls: a virtual joystick (left); jump, hold-to-run and slide
+ * tackle (right); the look-at button sits at the bottom centre. Camera orbit + pinch zoom are handled on the canvas itself by
  * ThirdPersonCamera. Built on Pointer Events so mouse emulation also works.
  */
 export function MobileControls() {
@@ -22,7 +22,10 @@ export function MobileControls() {
   const active = useRef<number | null>(null)
   const center = useRef({ x: 0, y: 0 })
 
-  if (!touch || !started || blocked) return null
+  if (!touch || !started || blocked) {
+    inputState.run = false
+    return null
+  }
 
   const move = (cx: number, cy: number) => {
     let dx = cx - center.current.x
@@ -43,6 +46,10 @@ export function MobileControls() {
     inputState.joyY = 0
   }
   const focused = focusedId ? INTERACTABLE_BY_ID[focusedId] : null
+  const stopRun = () => {
+    inputState.run = false
+    setRun(false)
+  }
 
   return (
     <div className="mobile-controls">
@@ -68,25 +75,46 @@ export function MobileControls() {
       >
         <div className="joystick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
       </div>
-      <div className="touch-buttons">
-        {focused && (
-          <button className="tbtn look" onClick={() => openInfo(focused.id)}>
-            살펴보기
-          </button>
-        )}
-        <button
-          className={`tbtn ${run ? 'on' : ''}`}
-          onClick={() => {
-            inputState.run = !run
-            setRun(!run)
-          }}
-          aria-pressed={run}
-        >
-          {run ? '달리기 ON' : '달리기'}
+      {focused && (
+        <button className="tbtn look" onClick={() => openInfo(focused.id)}>
+          살펴보기 · {focused.title}
         </button>
+      )}
+      <div className="touch-buttons">
+        <div className="tbtn-col">
+          <button
+            className="tbtn tackle"
+            onPointerDown={(e) => {
+              e.preventDefault()
+              inputState.tackleQueued = true
+            }}
+          >
+            태클
+          </button>
+          <button
+            className={`tbtn run ${run ? 'on' : ''}`}
+            aria-pressed={run}
+            onPointerDown={(e) => {
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId)
+              } catch {
+                /* ignore */
+              }
+              inputState.run = true
+              setRun(true)
+            }}
+            onPointerUp={stopRun}
+            onPointerCancel={stopRun}
+            onLostPointerCapture={stopRun}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            달리기
+          </button>
+        </div>
         <button
           className="tbtn jump"
-          onPointerDown={() => {
+          onPointerDown={(e) => {
+            e.preventDefault()
             inputState.jumpQueued = true
           }}
         >

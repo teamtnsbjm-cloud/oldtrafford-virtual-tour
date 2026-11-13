@@ -13,6 +13,8 @@ const WALK = 3.4
 const RUN = 7.2
 const GRAVITY = 22
 const JUMP_V = 6.2
+const SLIDE_TIME = 0.75
+const SLIDE_COOLDOWN = 0.6
 const HEAD = 1.6
 
 function hitsCollider(x: number, z: number, feet: number) {
@@ -61,6 +63,7 @@ export function PlayerController() {
   const keys = useRef<Record<string, boolean>>({})
   const vel = useRef(new THREE.Vector2())
   const vy = useRef(0)
+  const slide = useRef({ t: 0, cool: 0, dx: 0, dz: 0, v: 0 })
   const lastSafe = useRef(new THREE.Vector3(0, 0, 128))
   const safeTimer = useRef(0)
 
@@ -107,6 +110,7 @@ export function PlayerController() {
       }
       if (e.code === 'Space' && !st.infoId && !st.customizing) inputState.jumpQueued = true
       if (e.code === 'KeyM') st.setMuted(!st.muted)
+      if (e.code === 'KeyF' && !st.infoId && !st.customizing) inputState.tackleQueued = true
       if (e.code === 'KeyC' && !st.infoId) {
         st.setCustomizing(!st.customizing)
         if (document.pointerLockElement) document.exitPointerLock()
@@ -170,6 +174,27 @@ export function PlayerController() {
     vel.current.x += (tx - vel.current.x) * accel
     vel.current.y += (tz - vel.current.y) * accel
 
+    // slide tackle: a committed burst along the facing direction that decays to a stop
+    const sl = slide.current
+    sl.cool = Math.max(0, sl.cool - dt)
+    if (inputState.tackleQueued) {
+      if (canMove && sl.t <= 0 && sl.cool <= 0 && !playerState.airborne) {
+        sl.t = SLIDE_TIME
+        sl.dx = -Math.sin(playerState.facing)
+        sl.dz = -Math.cos(playerState.facing)
+        sl.v = Math.max(vel.current.length(), WALK) + 3.6
+      }
+      inputState.tackleQueued = false
+    }
+    if (sl.t > 0) {
+      const k = sl.t / SLIDE_TIME
+      const v = sl.v * (0.25 + 0.75 * k * k)
+      vel.current.set(sl.dx * v, sl.dz * v)
+      sl.t -= dt
+      if (sl.t <= 0) sl.cool = SLIDE_COOLDOWN
+    }
+    playerState.sliding = sl.t > 0
+
     const stuck = hitsCollider(p.x, p.z, p.y)
     const nx = p.x + vel.current.x * dt
     if (!blocked(nx, p.z, p.y, stuck)) p.x = nx
@@ -179,7 +204,7 @@ export function PlayerController() {
     else vel.current.y = 0
 
     // body faces the direction of travel (desired direction, so it turns even against a wall)
-    if (hasInput) playerState.facing = Math.atan2(-tx, -tz)
+    if (hasInput && sl.t <= 0) playerState.facing = Math.atan2(-tx, -tz)
 
     // vertical: jump, gravity, step-up and landing
     const g = footprintGround(p.x, p.z, p.y)

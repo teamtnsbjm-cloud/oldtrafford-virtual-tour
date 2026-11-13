@@ -24,6 +24,8 @@ export const playerState = {
   running: false,
   /** feet off the ground (jumping / falling) */
   airborne: false,
+  /** in a slide tackle */
+  sliding: false,
   vy: 0,
   zone: 'plaza' as ZoneId,
 }

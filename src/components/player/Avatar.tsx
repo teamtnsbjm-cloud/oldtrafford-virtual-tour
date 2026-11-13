@@ -148,6 +148,7 @@ export interface AvatarSource {
   facing: number
   speed: number
   airborne: boolean
+  sliding: boolean
   zone: ZoneId
   visible: boolean
 }
@@ -183,7 +184,7 @@ export function Avatar() {
   const netName = useNet((s) => (s.status === 'online' ? s.myName : null))
   const cfg = useMemo(() => (netName ? { ...baseCfg, nickname: netName } : baseCfg), [baseCfg, netName])
   const src = useMemo<AvatarSource>(
-    () => ({ x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, zone: 'plaza', visible: true }),
+    () => ({ x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, sliding: false, zone: 'plaza', visible: true }),
     [],
   )
   useFrame(() => {
@@ -193,6 +194,7 @@ export function Avatar() {
     src.facing = playerState.facing
     src.speed = playerState.speed
     src.airborne = playerState.airborne
+    src.sliding = playerState.sliding
     src.zone = playerState.zone
     src.visible = playerState.camActualDist > 0.75
   }, -1)
@@ -224,7 +226,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     ;(refs.current as Record<string, unknown>)[k] = arr
   }
 
-  const anim = useRef({ phase: 0, moveW: 0, runW: 0, facing: 0, lean: 0, lastStep: 0, jumpW: 0, wasAir: false, land: 0 })
+  const anim = useRef({ phase: 0, moveW: 0, runW: 0, facing: 0, lean: 0, lastStep: 0, jumpW: 0, wasAir: false, land: 0, slideW: 0, wasSlide: false })
   const rootRef = useRef<THREE.Group>(null)
   const tagMat = useRef<THREE.SpriteMaterial>(null)
   const bubbleMat = useRef<THREE.SpriteMaterial>(null)
@@ -362,6 +364,27 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     r.hips.position.y = hipH + bounce
     r.hips.position.x = sway * 0.012 * (1 - mW)
     r.hips.rotation.y = -twistA * s * mW * 0.6
+
+    // ---- slide tackle: body tips back, lead leg shoots forward, trailing leg tucks ----
+    a.slideW += ((src.sliding ? 1 : 0) - a.slideW) * (1 - Math.exp(-dt * (src.sliding ? 18 : 6)))
+    if (src.sliding && !a.wasSlide && local) audio.footstep('grass', 1.6)
+    a.wasSlide = src.sliding
+    const sW = a.slideW
+    r.hips.rotation.x = -1.05 * sW
+    if (sW > 0.002) {
+      r.hips.position.y = lerp(r.hips.position.y, 0.3, sW)
+      r.spine.rotation.x = lerp(r.spine.rotation.x, 0.55, sW)
+      r.hip[0].rotation.x = lerp(r.hip[0].rotation.x, -0.5, sW)
+      r.knee[0].rotation.x = lerp(r.knee[0].rotation.x, 0.1, sW)
+      r.ankle[0].rotation.x = lerp(r.ankle[0].rotation.x, 0.3, sW)
+      r.hip[1].rotation.x = lerp(r.hip[1].rotation.x, 0.25, sW)
+      r.knee[1].rotation.x = lerp(r.knee[1].rotation.x, 1.55, sW)
+      for (let i = 0; i < 2; i++) {
+        r.shoulder[i].rotation.x = lerp(r.shoulder[i].rotation.x, 0.35, sW)
+        r.shoulder[i].rotation.z = lerp(r.shoulder[i].rotation.z, (i === 0 ? 1 : -1) * 0.95, sW)
+        r.elbow[i].rotation.x = lerp(r.elbow[i].rotation.x, 0.3, sW)
+      }
+    }
   })
 
   const M = model

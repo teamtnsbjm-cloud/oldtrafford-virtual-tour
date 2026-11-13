@@ -218,6 +218,21 @@ kbd {
 .chat-form .cz-input { flex: 1; background: rgba(12, 13, 16, 0.85); }
 .chat-hint { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
 @media (max-width: 760px) {
-  .chat { left: 10px; bottom: 170px; width: calc(100vw - 120px); }
+  .chat { left: 10px; bottom: 236px; width: calc(100vw - 120px); }
   .chat-open-btn { align-self: flex-start; }
+}
+
+/* ---- touch buttons v2: hold-to-run, tackle, centred look button ---- */
+.touch-buttons { flex-direction: row; align-items: flex-end; gap: 10px; }
+.tbtn-col { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+.tbtn.run.on { background: rgba(243, 198, 35, 0.9); color: #111; transform: scale(0.96); }
+.tbtn.tackle { background: rgba(30, 90, 200, 0.8); }
+.tbtn.look {
+  position: fixed; left: 50%; bottom: 178px; transform: translateX(-50%);
+  max-width: calc(100vw - 40px); min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: auto; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.tbtn { -webkit-touch-callout: none; -webkit-user-select: none; }
+@media (max-width: 760px) {
+  .prompt { display: none; }
 }

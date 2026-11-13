@@ -10,7 +10,7 @@ import { AvatarRig, type AvatarSource } from './Avatar'
 /** One remote visitor rendered with the full animated rig. */
 function RemoteAvatar({ r }: { r: RemotePlayer }) {
   const cfg = useMemo(() => ({ ...DEFAULT_AVATAR, ...r.cfg, nickname: r.name }), [r.cfg, r.name])
-  const src = useMemo<AvatarSource>(() => ({ x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, zone: 'plaza', visible: false }), [])
+  const src = useMemo<AvatarSource>(() => ({ x: 0, y: 0, z: 0, facing: 0, speed: 0, airborne: false, sliding: false, zone: 'plaza', visible: false }), [])
   useFrame(() => {
     const o = r.render
     src.x = o.x
@@ -19,6 +19,7 @@ function RemoteAvatar({ r }: { r: RemotePlayer }) {
     src.facing = o.facing
     src.speed = o.speed
     src.airborne = o.airborne
+    src.sliding = o.sliding
     src.visible = o.visible
   }, -1)
   return <AvatarRig cfg={cfg} src={src} getBubble={() => r.bubble} />

@@ -66,6 +66,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) =
 /** @type {Map<string, Map<number, Player>>} */
 const rooms = new Map()
 let nextId = 1
+/** last touch of every ball per room: roomId -> Map<ballIndex, {i,p,v,ts}> */
+const roomBalls = new Map()
+const MAX_BALLS = 12
 
 /**
  * @typedef {{ id:number, ws:import('ws').WebSocket, room:string, name:string, cfg:object,
@@ -176,6 +179,8 @@ wss.on('connection', (ws) => {
       for (const o of room.values()) if (o.id !== p.id && o.joined) send(ws, { t: 'join', id: o.id, name: o.name, cfg: o.cfg })
       broadcast(room, { t: 'join', id: p.id, name: p.name, cfg: p.cfg }, p.id)
       broadcast(room, { t: 'count', n: [...room.values()].filter((o) => o.joined).length, room: roomId })
+      const rb = roomBalls.get(roomId)
+      if (rb && rb.size) send(ws, { t: 'balls', b: [...rb.values()] })
       return
     }
     if (!p.joined) return
@@ -186,8 +191,20 @@ wss.on('connection', (ws) => {
       p.x = x; p.y = y; p.z = z
       p.f = num(m.f, -1000, 1000) ?? p.f
       p.v = num(m.v, 0, 12) ?? 0
-      p.a = m.a ? 1 : 0
+      p.a = m.a === 2 ? 2 : m.a ? 1 : 0
       if (ZONES.has(m.z)) p.zone = m.z
+    } else if (m.t === 'ball') {
+      const i = Number.isInteger(m.i) && m.i >= 0 && m.i < MAX_BALLS ? m.i : -1
+      if (i < 0 || !Array.isArray(m.p) || !Array.isArray(m.v)) return
+      const pp = [num(m.p[0], -70, 70), num(m.p[1], 0, 30), num(m.p[2], -50, 50)]
+      const vv = [num(m.v[0], -40, 40), num(m.v[1], -40, 40), num(m.v[2], -40, 40)]
+      if (pp.includes(null) || vv.includes(null)) return
+      // only players standing near the ball may touch it
+      if (Math.hypot(pp[0] - p.x, pp[2] - p.z) > 4) return
+      const entry = { i, p: pp, v: vv, ts: Date.now() }
+      if (!roomBalls.has(roomId)) roomBalls.set(roomId, new Map())
+      roomBalls.get(roomId).set(i, entry)
+      broadcast(room, { t: 'ball', ...entry }, p.id)
     } else if (m.t === 'chat') {
       const now = Date.now()
       if (now - p.lastChat < 1200) return
@@ -212,6 +229,7 @@ wss.on('connection', (ws) => {
       broadcast(room, { t: 'leave', id: p.id })
       broadcast(room, { t: 'count', n: [...room.values()].filter((o) => o.joined).length, room: roomId })
     }
+    if (room.size === 0) roomBalls.delete(roomId)
     if (room.size === 0 && rooms.size > 1) rooms.delete(roomId)
   })
 })
