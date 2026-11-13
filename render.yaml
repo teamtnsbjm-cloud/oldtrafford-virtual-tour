@@ -1,0 +1,14 @@
+# Render Blueprint — one web service serves the 3D tour and the multiplayer WebSocket.
+services:
+  - type: web
+    name: oldtrafford-virtual-tour
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MAX_PER_ROOM
+        value: "100"
