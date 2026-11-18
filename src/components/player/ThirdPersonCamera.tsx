@@ -11,7 +11,9 @@ const LOOK_SENS = 0.0024
 const DRAG_SENS = 0.006
 const MIN_DIST = 1.4
 const MAX_DIST = 9
-const PITCH_MIN = -0.2
+/** below the orbit floor the camera stays put and the lens tilts up instead (look at the sky) */
+const PITCH_MIN = -1.15
+const ORBIT_FLOOR = -0.12
 const PITCH_MAX = 1.15
 /** orbit pivot above the feet (upper chest) */
 const PIVOT_H = 1.5
@@ -213,7 +215,11 @@ export function ThirdPersonCamera() {
       const sweep = Math.PI * 2 * (u * u * (3 - 2 * u))
       yaw += Math.atan2(Math.sin(sweep), Math.cos(sweep)) * cineGain.current
     }
-    const pitch = (playerState.zone === 'stands' ? Math.max(playerState.pitch, 0.42) : playerState.pitch) + cine * 0.32
+    // the orbit itself never dips under the floor (would push the lens into the ground or seats);
+    // pulling further "down" tilts the view upward toward the sky
+    const floor = playerState.zone === 'stands' ? 0.42 : ORBIT_FLOOR
+    const lookUp = Math.max(0, floor - playerState.pitch)
+    const pitch = Math.max(playerState.pitch, floor) + cine * 0.32
     dir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
 
     const zone = playerState.zone
@@ -252,6 +258,7 @@ export function ThirdPersonCamera() {
     aim.copy(pivot.current).addScaledVector(right, shoulder.current)
     aim.y += AIM_UP * THREE.MathUtils.clamp(dist.current / 3, 0.3, 1)
     camera.lookAt(aim)
+    if (lookUp > 0) camera.rotateX(lookUp)
 
     // ---- zone effects (tunnel walk-out reveal) ----
     if (zone !== lastZone.current) {

@@ -60,6 +60,50 @@ function backPrint(number: number, name: string, shirt: string) {
   return t
 }
 
+/**
+ * Face decal laid over the head sphere (equirectangular: u = around, v = top→bottom).
+ * The front of the head (+Z) is at u = 0.25.
+ */
+let faceTex: THREE.CanvasTexture | null = null
+function faceTexture() {
+  if (faceTex) return faceTex
+  const W = 1024
+  const H = 512
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const ctx = c.getContext('2d')!
+  const cx = W * 0.25
+  const eyeY = H * 0.545
+  const eyeDX = W * 0.052
+  // blush
+  for (const sx of [-1, 1]) {
+    const g = ctx.createRadialGradient(cx + sx * W * 0.072, H * 0.6, 2, cx + sx * W * 0.072, H * 0.6, 34)
+    g.addColorStop(0, 'rgba(235,110,110,0.55)')
+    g.addColorStop(1, 'rgba(235,110,110,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(cx + sx * W * 0.072 - 40, H * 0.6 - 40, 80, 80)
+  }
+  ctx.strokeStyle = '#3b2a22'
+  ctx.lineCap = 'round'
+  // closed, smiling eyes (∩)
+  ctx.lineWidth = 7
+  for (const sx of [-1, 1]) {
+    ctx.beginPath()
+    ctx.arc(cx + sx * eyeDX, eyeY + 8, 15, Math.PI * 1.15, Math.PI * 1.85)
+    ctx.stroke()
+  }
+  // small smile
+  ctx.lineWidth = 6
+  ctx.beginPath()
+  ctx.arc(cx, H * 0.6, 16, Math.PI * 0.2, Math.PI * 0.8)
+  ctx.stroke()
+  faceTex = new THREE.CanvasTexture(c)
+  faceTex.colorSpace = THREE.SRGBColorSpace
+  faceTex.anisotropy = 8
+  return faceTex
+}
+
 function nameTag(name: string) {
   const c = document.createElement('canvas')
   c.width = 512
@@ -97,7 +141,8 @@ function useMaterials(cfg: AvatarConfig) {
       boot: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.35, metalness: 0.1 }),
       sole: new THREE.MeshStandardMaterial({ color: '#e9e9e9', roughness: 0.6 }),
       eye: new THREE.MeshStandardMaterial({ color: '#141010', roughness: 0.2 }),
-      print: new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.7, depthWrite: false }),
+      print: new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
+      face: new THREE.MeshStandardMaterial({ map: faceTexture(), transparent: true, roughness: 0.6, depthWrite: false }),
     }),
     [],
   )
@@ -154,17 +199,50 @@ function Taper({ len, r0, r1, bulge = 0, bulgeAt = 0.4, y0 = 0, mat, sx = 1, sz 
   return <mesh geometry={taperGeo(len, r0, r1, bulge, bulgeAt)} material={mat} position={[0, y0, 0]} scale={[sx, 1, sz]} />
 }
 
+function torsoProfile(waist: number, chest: number): [number, number][] {
+  return [
+    [0, -0.02], [waist * 0.98, 0], [waist * 1.0, 0.08], [waist * 1.06, 0.16], [chest * 0.98, 0.26],
+    [chest * 1.02, 0.34], [chest * 1.0, 0.4], [chest * 0.9, 0.45], [chest * 0.66, 0.49], [0.07, 0.515], [0, 0.52],
+  ]
+}
+
+/** Curved patch that hugs the back of the torso (for the name + number print). */
+const backCache = new Map<string, THREE.LatheGeometry>()
+function backPrintGeo(waist: number, chest: number) {
+  const key = waist.toFixed(3) + '|' + chest.toFixed(3)
+  const hit = backCache.get(key)
+  if (hit) return hit
+  const prof = torsoProfile(waist, chest)
+  const rAt = (y: number) => {
+    for (let i = 1; i < prof.length; i++) {
+      if (y <= prof[i][1]) {
+        const [r0, y0] = prof[i - 1]
+        const [r1, y1] = prof[i]
+        return r0 + ((y - y0) / (y1 - y0)) * (r1 - r0)
+      }
+    }
+    return prof[prof.length - 1][0]
+  }
+  const pts: THREE.Vector2[] = []
+  const Y0 = 0.17
+  const Y1 = 0.44
+  for (let i = 0; i <= 14; i++) {
+    const y = Y0 + ((Y1 - Y0) * i) / 14
+    pts.push(new THREE.Vector2(rAt(y) * 1.015 + 0.002, y))
+  }
+  // back of the body is -Z (phi = π); u runs left→right as seen from behind
+  const g = new THREE.LatheGeometry(pts, 20, Math.PI - 0.8, 1.6)
+  backCache.set(key, g)
+  return g
+}
+
 /** V-shaped torso: waist -> ribcage -> sloping shoulders -> neck base. */
 const torsoCache = new Map<string, THREE.LatheGeometry>()
 function torsoGeo(waist: number, chest: number) {
   const key = waist.toFixed(3) + '|' + chest.toFixed(3)
   const hit = torsoCache.get(key)
   if (hit) return hit
-  const prof: [number, number][] = [
-    [0, -0.02], [waist * 0.98, 0], [waist * 1.0, 0.08], [waist * 1.06, 0.16], [chest * 0.98, 0.26],
-    [chest * 1.06, 0.34], [chest * 1.06, 0.4], [chest * 0.92, 0.45], [chest * 0.62, 0.49], [0.062, 0.515], [0, 0.52],
-  ]
-  const g = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 24)
+  const g = new THREE.LatheGeometry(torsoProfile(waist, chest).map(([r, y]) => new THREE.Vector2(r, y)), 24)
   g.computeVertexNormals()
   torsoCache.set(key, g)
   return g
@@ -313,7 +391,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     // facing: shortest-arc smoothing toward the movement direction
     let d = src.facing - a.facing
     d = Math.atan2(Math.sin(d), Math.cos(d))
-    const turnRate = 10
+    const turnRate = 8
     a.facing += d * (1 - Math.exp(-dt * turnRate))
     root.rotation.y = a.facing + Math.PI // model faces +Z; facing 0 means -Z
 
@@ -353,8 +431,8 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     const legA = lerp(0.42, 0.8, rW)
     const kneeSwing = lerp(0.85, 1.75, rW)
     const kneeStance = lerp(0.08, 0.22, rW)
-    const armA = lerp(0.36, 0.85, rW)
-    const elbowBase = lerp(0.28, 1.5, rW)
+    const armA = lerp(0.3, 0.85, rW)
+    const elbowBase = lerp(0.42, 1.5, rW)
     const leanMove = lerp(0.05, 0.2, rW)
     const twistA = lerp(0.07, 0.12, rW)
 
@@ -363,7 +441,9 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
       kneeStance + kneeSwing * Math.pow(Math.max(0, c), 1.4),
       kneeStance + kneeSwing * Math.pow(Math.max(0, -c), 1.4),
     ]
-    const armMove: [number, number] = [-armA * s, armA * s]
+    // arms trail the legs a little (follow-through) instead of swinging in lock-step
+    const sa = Math.sin(a.phase - 0.35)
+    const armMove: [number, number] = [-armA * sa, armA * sa]
 
     // ---- idle pose ----
     const breath = Math.sin(t * 1.6)
@@ -373,7 +453,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     const thighG = thighMove.map((v) => v * mW) as [number, number]
     const kneeG = kneeMove.map((v) => lerp(0.04, v, mW) + a.land * 0.55) as [number, number]
     const armG = armMove.map((v) => lerp(0.04 + breath * 0.015, v, mW)) as [number, number]
-    const elbowG = [0, 1].map((i) => lerp(0.16, elbowBase + Math.max(0, armMove[i]) * 0.35, mW))
+    const elbowG = [0, 1].map((i) => lerp(0.24 + breath * 0.02, elbowBase + Math.max(0, armMove[i]) * 0.45, mW))
     // airborne tuck pose blended on top
     const thigh = [lerp(thighG[0], 0.75, jW), lerp(thighG[1], -0.2, jW)] as [number, number]
     const knee = [lerp(kneeG[0], 1.25, jW), lerp(kneeG[1], 0.55, jW)] as [number, number]
@@ -388,7 +468,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
       const shinAngle = thigh[i] - knee[i]
       r.ankle[i].rotation.x = shinAngle * 0.9 - 0.15 * Math.max(0, i === 0 ? c : -c) * mW
       r.shoulder[i].rotation.x = -arm[i]
-      r.shoulder[i].rotation.z = (i === 0 ? 1 : -1) * lerp(lerp(0.1 + sway * 0.01, 0.14, mW), 0.45, jW)
+      r.shoulder[i].rotation.z = (i === 0 ? 1 : -1) * lerp(lerp(0.15 + sway * 0.012, 0.19, mW), 0.45, jW)
       r.elbow[i].rotation.x = -elbow[i]
     }
 
@@ -396,19 +476,22 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     a.lean += (leanMove * mW - a.lean) * (1 - Math.exp(-dt * 5))
     r.spine.rotation.x = a.lean
     r.spine.rotation.y = twistA * s * mW
-    r.spine.rotation.z = sway * 0.012 * (1 - mW)
+    // weight shift: hips roll toward the stance leg, chest and head counter it
+    const roll = Math.sin(a.phase) * lerp(0.045, 0.03, rW) * mW
+    r.spine.rotation.z = sway * 0.012 * (1 - mW) - roll * 0.7
     r.chest.scale.set(1 + breath * 0.012 * (1 - mW), 1 + breath * 0.008 * (1 - mW), 1 + breath * 0.02 * (1 - mW))
     r.head.rotation.y = -twistA * s * mW * 0.8
     r.head.rotation.x = -a.lean * 0.6 + Math.sin(t * 0.37) * 0.03 * (1 - mW)
-    r.head.rotation.z = Math.sin(t * 0.29) * 0.03 * (1 - mW)
+    r.head.rotation.z = Math.sin(t * 0.29) * 0.03 * (1 - mW) - roll * 0.4
 
     // foot planting: hip height = the longer leg's vertical reach
     const reach = (i: number) => model.thigh * Math.cos(thigh[i]) + model.shin * Math.cos(thigh[i] - knee[i])
     const hipH = 0.03 + Math.max(reach(0), reach(1)) + FOOT_HEIGHT
-    const bounce = Math.abs(Math.sin(a.phase)) * 0.045 * rW * mW
+    const bounce = Math.abs(Math.sin(a.phase)) * lerp(0.018, 0.045, rW) * mW
     r.hips.position.y = hipH + bounce
     r.hips.position.x = sway * 0.012 * (1 - mW)
     r.hips.rotation.y = -twistA * s * mW * 0.6
+    r.hips.rotation.z = roll
 
     // ---- slide tackle: body tips back, lead leg shoots forward, trailing leg tucks ----
     a.slideW += ((src.sliding ? 1 : 0) - a.slideW) * (1 - Math.exp(-dt * (src.sliding ? 18 : 6)))
@@ -437,14 +520,13 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
   const longSleeve = cfg.topStyle === 'longsleeve'
   const training = cfg.topStyle === 'training'
   const sleeveMat = training ? mats.trim : mats.shirt
-  const chestZ = M.chestRadius * M.chestDepth
 
   const arm = (i: 0 | 1) => {
     const sx = i === 0 ? 1 : -1
     return (
       <group ref={setPair('shoulder', i)} position={[sx * M.shoulder, 0.43, 0]}>
         <mesh material={mats.shirt} position={[-sx * 0.012, -0.012, 0]} scale={[0.9, 1.0, 1.0]}>
-          <sphereGeometry args={[0.064 * ls, 16, 12]} />
+          <sphereGeometry args={[0.07 * ls, 16, 12]} />
         </mesh>
         {/* sleeve */}
         {longSleeve || training ? (
@@ -544,9 +626,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
               <cylinderGeometry args={[M.waistRadius + 0.004, M.waistRadius + 0.004, 0.02, 20]} />
             </mesh>
             {/* back print: number + nickname (no club badge anywhere) */}
-            <mesh position={[0, 0.3, -chestZ - 0.006]} rotation={[0, Math.PI, 0]} material={mats.print} userData={{ noShadow: true }}>
-              <planeGeometry args={[0.27, 0.27]} />
-            </mesh>
+            <mesh geometry={backPrintGeo(M.waistRadius, M.chestRadius)} scale={[1.12, 1, M.chestDepth * 1.08]} material={mats.print} userData={{ noShadow: true }} />
           </group>
           {arm(0)}
           {arm(1)}
@@ -555,39 +635,23 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
               <cylinderGeometry args={[0.042, 0.055, 0.12, 12]} />
             </mesh>
             <group ref={set('head')} position={[0, 0.09, 0]}>
-              <mesh position={[0, headR * 0.95, 0.005]} scale={[0.86, 1.06, 0.98]} material={mats.skin}>
-                <sphereGeometry args={[headR, 24, 18]} />
+              {/* smooth round head with a painted face (closed smiling eyes, small smile, blush) */}
+              <mesh position={[0, headR * 0.98, 0]} scale={[0.96, 1, 0.96]} material={mats.skin}>
+                <sphereGeometry args={[headR, 32, 24]} />
               </mesh>
-              {/* jaw / chin */}
-              <mesh position={[0, headR * 0.42, headR * 0.28]} scale={[0.68, 0.55, 0.72]} material={mats.skin}>
-                <sphereGeometry args={[headR, 18, 12]} />
+              <mesh position={[0, headR * 0.98, 0]} scale={[0.96, 1, 0.96]} material={mats.face} userData={{ noShadow: true }}>
+                <sphereGeometry args={[headR * 1.004, 32, 24]} />
               </mesh>
-              {/* brows + mouth */}
-              {[-1, 1].map((s2) => (
-                <mesh key={'b' + s2} position={[s2 * 0.036, headR * 1.14, headR * 0.84]} rotation={[0, 0, s2 * -0.12]} material={mats.hair}>
-                  <boxGeometry args={[0.03, 0.007, 0.01]} />
+              {/* hair cap, tilted back so the hairline sits above the eyes */}
+              <mesh position={[0, headR * 1.0, -headR * 0.04]} scale={[1.0, 1.0, 1.0]} rotation={[-0.42, 0, 0]} material={mats.hair}>
+                <sphereGeometry args={[headR * 1.035, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.5]} />
+              </mesh>
+              {/* small ears */}
+              {[-1, 1].map((e) => (
+                <mesh key={e} position={[e * headR * 0.95, headR * 0.92, 0]} scale={[0.45, 0.8, 0.6]} material={mats.skin}>
+                  <sphereGeometry args={[headR * 0.22, 10, 8]} />
                 </mesh>
               ))}
-              <mesh position={[0, headR * 0.5, headR * 0.93]} material={mats.eye}>
-                <boxGeometry args={[0.032, 0.005, 0.006]} />
-              </mesh>
-              {/* hair cap */}
-              <mesh position={[0, headR * 0.98, -0.006]} scale={[0.95, 1.06, 1.04]} rotation={[-0.25, 0, 0]} material={mats.hair}>
-                <sphereGeometry args={[headR * 1.02, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52]} />
-              </mesh>
-              {[-1, 1].map((s) => (
-                <group key={s}>
-                  <mesh position={[s * 0.036, headR * 0.98, headR * 0.86]} material={mats.eye}>
-                    <sphereGeometry args={[0.012, 8, 6]} />
-                  </mesh>
-                  <mesh position={[s * headR * 0.88, headR * 0.9, 0]} scale={[0.4, 1, 0.7]} material={mats.skin}>
-                    <sphereGeometry args={[0.03, 8, 6]} />
-                  </mesh>
-                </group>
-              ))}
-              <mesh position={[0, headR * 0.82, headR * 0.95]} scale={[0.8, 1.2, 1]} material={mats.skin}>
-                <sphereGeometry args={[0.016, 8, 6]} />
-              </mesh>
             </group>
           </group>
         </group>
