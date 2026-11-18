@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { BOWL, LOWER_TIER, PITCH_STAIRS, ROOF, STAIR_STEPS, STAIR_W, UPPER_TIER, VOM_ROWS, VOMITORIES, vomitoryBox, type Box } from '../../world/layout'
+import { Sign } from './props/common'
 import { at, beamMatrices, PARTS, partPoint, ringPoints, type Sample } from '../../world/bowlGeometry'
 
 /*
@@ -93,6 +94,31 @@ function buildRoofStructure() {
     const top = (q: Sample) => at(q, d, y(d) - 0.75)
     const bot = (q: Sample) => at(q, d, y(d) - 3.4)
     beams.push([top(s), top(n), 0.28], [bot(s), bot(n), 0.28], [top(s), bot(s), 0.16], [i % 2 ? top(s) : bot(s), i % 2 ? bot(n) : top(n), 0.16])
+  })
+  // exposed lattice trusses sitting ON TOP of the roof (the cantilever structure seen in photos of the
+  // bowl): a longitudinal girder running round the stand plus transverse trusses every other rafter
+  const RIDGE = 20
+  const RISE = 4.2
+  const onRoof = (q: Sample, d: number, h: number) => at(q, d, y(d) + h)
+  const ridge = ringPoints(BOWL.r + RIDGE, 5)
+  ridge.forEach((s, i) => {
+    const n = ridge[(i + 1) % ridge.length]
+    beams.push([onRoof(s, RIDGE, RISE), onRoof(n, RIDGE, RISE), 0.22], [onRoof(s, RIDGE, 0.3), onRoof(n, RIDGE, 0.3), 0.2])
+    beams.push([onRoof(s, RIDGE, 0.3), onRoof(s, RIDGE, RISE), 0.12], [i % 2 ? onRoof(s, RIDGE, 0.3) : onRoof(s, RIDGE, RISE), i % 2 ? onRoof(n, RIDGE, RISE) : onRoof(n, RIDGE, 0.3), 0.12])
+  })
+  rafters.forEach((s, i) => {
+    if (i % 2) return
+    const d0 = inner + 1
+    const d1 = outer - 1
+    const topH = (d: number) => (d <= RIDGE ? 0.3 + ((d - d0) / (RIDGE - d0)) * (RISE - 0.3) : RISE - ((d - RIDGE) / (d1 - RIDGE)) * (RISE - 0.3))
+    beams.push([onRoof(s, d0, 0.3), onRoof(s, RIDGE, RISE), 0.2], [onRoof(s, RIDGE, RISE), onRoof(s, d1, 0.3), 0.2], [onRoof(s, d0, 0.3), onRoof(s, d1, 0.3), 0.18])
+    let flip = false
+    for (let d = d0 + 3; d < d1 - 0.5; d += 3) {
+      beams.push([onRoof(s, d, 0.3), onRoof(s, d, topH(d)), 0.1])
+      const dn = Math.min(d + 3, d1)
+      beams.push(flip ? [onRoof(s, d, 0.3), onRoof(s, dn, topH(dn)), 0.1] : [onRoof(s, d, topH(d)), onRoof(s, dn, 0.3), 0.1])
+      flip = !flip
+    }
   })
   const steel = new THREE.MeshStandardMaterial({ color: '#eceef1', roughness: 0.45, metalness: 0.35 })
   return [
@@ -190,6 +216,45 @@ function buildPitchStairs() {
   ]
 }
 
+/** Stand names on the white fascia under the roof edge (publicly known names; fan rendering, not official signage). */
+const FASCIA: { side: 'N' | 'S' | 'E' | 'W'; text: string; width: number }[] = [
+  { side: 'N', text: 'SIR ALEX FERGUSON STAND', width: 30 },
+  { side: 'W', text: 'STRETFORD END', width: 20 },
+  { side: 'E', text: 'EAST STAND', width: 16 },
+  { side: 'S', text: 'SIR BOBBY CHARLTON STAND', width: 30 },
+]
+function StandFascia() {
+  const d = ROOF.inner + 1.3
+  const yAt = ROOF.yInner + ((d - ROOF.inner) / (ROOF.outer - ROOF.inner)) * (ROOF.yOuter - ROOF.yInner) - 2.1
+  return (
+    <>
+      {FASCIA.map((f) => {
+        const ns = f.side === 'N' || f.side === 'S'
+        const sign = f.side === 'S' || f.side === 'E' ? 1 : -1
+        const off = (ns ? BOWL.b : BOWL.a) + d
+        const pos: [number, number, number] = ns ? [0, yAt, sign * off] : [sign * off, yAt, 0]
+        const rotY = { N: 0, S: Math.PI, W: Math.PI / 2, E: -Math.PI / 2 }[f.side]
+        return (
+          <group key={f.side}>
+            <mesh position={[pos[0] + (ns ? 0 : sign * 0.06), pos[1], pos[2] + (ns ? sign * 0.06 : 0)]} rotation={[0, rotY, 0]}>
+              <planeGeometry args={[f.width + 6, 1.5]} />
+              <meshStandardMaterial color="#f1f1f1" roughness={0.6} />
+            </mesh>
+            <Sign
+              id={'fascia-' + f.side}
+              lines={[{ text: f.text, size: 0.62, color: '#c4141c', font: "'Arial Black',sans-serif", weight: '900' }]}
+              width={f.width}
+              height={1.1}
+              position={pos}
+              rotationY={rotY}
+            />
+          </group>
+        )
+      })}
+    </>
+  )
+}
+
 export function StadiumDetails() {
   const objs = useMemo(() => {
     const vomBoxes = VOMITORIES.map(vomitoryBox)
@@ -203,6 +268,7 @@ export function StadiumDetails() {
       {VOMITORIES.map((v, i) => (
         <Vomitory key={i} v={v} />
       ))}
+      <StandFascia />
     </group>
   )
 }

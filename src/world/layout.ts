@@ -284,6 +284,27 @@ export const STORE_MANNEQUINS: { x: number; z: number; rotY: number }[] = [
 export const STORE_BALL_DISPLAY = { x: 82, z: 108.6 }
 export const STORE_COUNTER = box(56, 127.2, 5, 1.1, 1.1)
 
+// Phase 3 interior props (rendered in InteriorProps.tsx)
+export const PROP_COLLIDERS_INFO = {
+  storeBins: [[68, 108.4], [68, 126.6]] as [number, number][],
+  capRack: [60, 108.6] as [number, number],
+  gondola: [83, 126] as [number, number],
+}
+export const PROP_COLLIDERS: Box[] = [
+  // lobby: queue posts, display case, plants, benches
+  ...[[-12.7, 71.6], [-12.7, 73.4], [-12.7, 75.2], [-8.3, 71.6], [-8.3, 73.4], [-8.3, 75.2]].map(([x, z]) => box(x, z, 0.3, 0.3, 1)),
+  box(1.5, 74, 1.6, 0.9, 1.8),
+  ...[[-14, 88], [14, 88], [14, 72], [-14.1, 77.5]].map(([x, z]) => box(x, z, 0.7, 0.7, 1.4)),
+  box(13.9, 80.5, 0.6, 2.2, 0.46),
+  box(13.9, 84, 0.6, 2.2, 0.46),
+  // store
+  ...PROP_COLLIDERS_INFO.storeBins.map(([x, z]) => box(x, z, 1.1, 1.1, 0.85)),
+  box(PROP_COLLIDERS_INFO.capRack[0], PROP_COLLIDERS_INFO.capRack[1], 0.8, 0.8, 1.9),
+  box(PROP_COLLIDERS_INFO.gondola[0], PROP_COLLIDERS_INFO.gondola[1], 3, 0.9, 1.4),
+  box(52.9, 110.5, 0.7, 0.7, 1.4),
+  box(52.9, 124.5, 0.7, 0.7, 1.4),
+]
+
 // ------------------------------------------------------------ physics ------
 export const COLLIDERS: Box[] = [
   ...Object.values(ROOMS).flatMap((r) => roomWalls(r).filter((w) => !w.lintel).map((w) => w.box)),
@@ -305,6 +326,7 @@ export const COLLIDERS: Box[] = [
   ...STORE_MANNEQUINS.map((m) => box(m.x, m.z, 0.8, 0.8, 2)),
   box(STORE_BALL_DISPLAY.x, STORE_BALL_DISPLAY.z, 2.2, 2.2, 1.2),
   STORE_COUNTER,
+  ...PROP_COLLIDERS,
 ]
 
 export const WORLD_BOUNDS = { minX: -145, maxX: 145, minZ: -150, maxZ: 158 }

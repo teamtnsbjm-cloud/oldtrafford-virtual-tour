@@ -115,14 +115,59 @@ function useMaterials(cfg: AvatarConfig) {
 }
 
 // ------------------------------------------------------------------ helpers --
-/** Capsule centred between two y values along a joint's local -Y axis. */
-function Limb({ len, r, y0 = 0, mat, sx = 1, sz = 1 }: { len: number; r: number; y0?: number; mat: THREE.Material; sx?: number; sz?: number }) {
-  const body = Math.max(0.001, len - r * 2)
-  return (
-    <mesh position={[0, y0 - len / 2, 0]} material={mat} scale={[sx, 1, sz]}>
-      <capsuleGeometry args={[r, body, 6, 14]} />
-    </mesh>
-  )
+/**
+ * Tapered, rounded limb segment (lathe) hanging along the joint's local -Y.
+ * r0 = radius at the top, r1 = at the bottom, bulge = extra radius (muscle) around bulgeAt (0 top … 1 bottom).
+ */
+const taperCache = new Map<string, THREE.LatheGeometry>()
+function taperGeo(len: number, r0: number, r1: number, bulge: number, bulgeAt: number) {
+  const key = [len, r0, r1, bulge, bulgeAt].map((v) => v.toFixed(4)).join('|')
+  const hit = taperCache.get(key)
+  if (hit) return hit
+  const pts: THREE.Vector2[] = []
+  const capB = r1 * 0.55
+  const capT = r0 * 0.55
+  // bottom cap -> shaft -> top cap (listed bottom to top so normals face outward)
+  for (let i = 0; i <= 4; i++) {
+    const a = (i / 4) * (Math.PI / 2)
+    pts.push(new THREE.Vector2(Math.sin(a) * r1, -len - capB * Math.cos(a)))
+  }
+  for (let i = 1; i < 12; i++) {
+    const t = 1 - i / 12
+    const r = r0 + (r1 - r0) * t + bulge * Math.exp(-((t - bulgeAt) ** 2) / 0.06)
+    pts.push(new THREE.Vector2(r, -len * t))
+  }
+  for (let i = 0; i <= 4; i++) {
+    const a = (i / 4) * (Math.PI / 2)
+    pts.push(new THREE.Vector2(Math.cos(a) * r0, capT * Math.sin(a)))
+  }
+  pts[pts.length - 1].x = 0
+  const g = new THREE.LatheGeometry(pts, 16)
+  g.computeVertexNormals()
+  taperCache.set(key, g)
+  return g
+}
+
+function Taper({ len, r0, r1, bulge = 0, bulgeAt = 0.4, y0 = 0, mat, sx = 1, sz = 1 }: {
+  len: number; r0: number; r1: number; bulge?: number; bulgeAt?: number; y0?: number; mat: THREE.Material; sx?: number; sz?: number
+}) {
+  return <mesh geometry={taperGeo(len, r0, r1, bulge, bulgeAt)} material={mat} position={[0, y0, 0]} scale={[sx, 1, sz]} />
+}
+
+/** V-shaped torso: waist -> ribcage -> sloping shoulders -> neck base. */
+const torsoCache = new Map<string, THREE.LatheGeometry>()
+function torsoGeo(waist: number, chest: number) {
+  const key = waist.toFixed(3) + '|' + chest.toFixed(3)
+  const hit = torsoCache.get(key)
+  if (hit) return hit
+  const prof: [number, number][] = [
+    [0, -0.02], [waist * 0.98, 0], [waist * 1.0, 0.08], [waist * 1.06, 0.16], [chest * 0.98, 0.26],
+    [chest * 1.06, 0.34], [chest * 1.06, 0.4], [chest * 0.92, 0.45], [chest * 0.62, 0.49], [0.062, 0.515], [0, 0.52],
+  ]
+  const g = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 24)
+  g.computeVertexNormals()
+  torsoCache.set(key, g)
+  return g
 }
 
 interface Rig {
@@ -250,7 +295,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     if (!src.visible) return
     const camD = local ? playerState.camActualDist : state.camera.position.distanceTo(root.position)
     if (tagMat.current) {
-      tagMat.current.opacity = local ? THREE.MathUtils.clamp((camD - 1.6) / 2.2, 0.18, 1) : THREE.MathUtils.clamp((45 - camD) / 15, 0, 1)
+      tagMat.current.opacity = local ? THREE.MathUtils.clamp((camD - 3.4) / 2.4, 0, 1) : THREE.MathUtils.clamp((45 - camD) / 15, 0, 1)
     }
     // chat bubble
     const b = getBubble?.()
@@ -398,33 +443,37 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     const sx = i === 0 ? 1 : -1
     return (
       <group ref={setPair('shoulder', i)} position={[sx * M.shoulder, 0.43, 0]}>
-        <mesh material={mats.shirt} position={[0, 0.005, 0]}>
-          <sphereGeometry args={[0.074 * ls, 16, 12]} />
+        <mesh material={mats.shirt} position={[-sx * 0.012, -0.012, 0]} scale={[0.9, 1.0, 1.0]}>
+          <sphereGeometry args={[0.064 * ls, 16, 12]} />
         </mesh>
         {/* sleeve */}
         {longSleeve || training ? (
-          <Limb len={M.upperArm} r={0.062 * ls} mat={sleeveMat} />
+          <Taper len={M.upperArm} r0={0.06 * ls} r1={0.046 * ls} bulge={0.006} mat={sleeveMat} />
         ) : (
           <>
-            <Limb len={0.14} r={0.07 * ls} mat={mats.shirt} />
+            <Taper len={0.13} r0={0.066 * ls} r1={0.062 * ls} mat={mats.shirt} />
             <mesh position={[0, -0.125, 0]} material={mats.trim}>
-              <cylinderGeometry args={[0.066 * ls, 0.066 * ls, 0.018, 14]} />
+              <cylinderGeometry args={[0.063 * ls, 0.063 * ls, 0.018, 14]} />
             </mesh>
-            <Limb len={M.upperArm} r={0.056 * ls} mat={mats.skin} />
+            <Taper len={M.upperArm} r0={0.052 * ls} r1={0.04 * ls} bulge={0.007 * ls} bulgeAt={0.45} mat={mats.skin} />
           </>
         )}
         <group ref={setPair('elbow', i)} position={[0, -M.upperArm, 0]}>
           <mesh material={longSleeve || training ? sleeveMat : mats.skin}>
-            <sphereGeometry args={[0.052 * ls, 12, 10]} />
+            <sphereGeometry args={[0.041 * ls, 12, 10]} />
           </mesh>
-          <Limb len={M.forearm} r={0.049 * ls} mat={longSleeve || training ? sleeveMat : mats.skin} />
+          <Taper len={M.forearm} r0={0.045 * ls} r1={0.031 * ls} bulge={0.006 * ls} bulgeAt={0.25} mat={longSleeve || training ? sleeveMat : mats.skin} />
           {(longSleeve || training) && (
             <mesh position={[0, -M.forearm + 0.02, 0]} material={training ? mats.shirt : mats.trim}>
               <cylinderGeometry args={[0.051 * ls, 0.051 * ls, 0.025, 12]} />
             </mesh>
           )}
-          <mesh position={[0, -M.forearm - 0.045, 0.005]} scale={[0.75, 1.15, 0.5]} material={mats.skin}>
+          {/* hand: palm + thumb */}
+          <mesh position={[0, -M.forearm - 0.05, 0.004]} scale={[0.62, 1.25, 0.36]} material={mats.skin}>
             <sphereGeometry args={[0.05 * ls, 12, 10]} />
+          </mesh>
+          <mesh position={[0, -M.forearm - 0.035, 0.026]} rotation={[0.5, 0, 0]} scale={[0.32, 0.7, 0.32]} material={mats.skin}>
+            <sphereGeometry args={[0.045 * ls, 8, 6]} />
           </mesh>
         </group>
       </group>
@@ -436,18 +485,18 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
     return (
       <group ref={setPair('hip', i)} position={[sx * M.hipWidth, -0.03, 0]}>
         {/* shorts leg */}
-        <Limb len={0.22} r={0.1 * ls} y0={0.03} mat={mats.shorts} />
-        <Limb len={M.thigh} r={0.084 * ls} mat={mats.skin} />
+        <Taper len={0.23} r0={0.098 * ls} r1={0.09 * ls} y0={0.03} mat={mats.shorts} />
+        <Taper len={M.thigh} r0={0.082 * ls} r1={0.054 * ls} bulge={0.008 * ls} bulgeAt={0.35} mat={mats.skin} />
         <group ref={setPair('knee', i)} position={[0, -M.thigh, 0]}>
-          <mesh material={mats.skin}>
-            <sphereGeometry args={[0.07 * ls, 12, 10]} />
+          <mesh material={mats.skin} position={[0, 0, 0.012]} scale={[1, 1, 0.9]}>
+            <sphereGeometry args={[0.056 * ls, 12, 10]} />
           </mesh>
-          {/* sock from just below the knee to the ankle */}
-          <Limb len={M.shin - 0.05} r={0.066 * ls} y0={-0.05} mat={mats.sock} />
+          {/* sock from just below the knee to the ankle (calf bulge high, slim ankle) */}
+          <Taper len={M.shin - 0.05} r0={0.06 * ls} r1={0.038 * ls} bulge={0.014 * ls} bulgeAt={0.22} y0={-0.05} mat={mats.sock} sz={1.05} />
           <mesh position={[0, -0.075, 0]} material={mats.trim}>
             <cylinderGeometry args={[0.069 * ls, 0.069 * ls, 0.03, 12]} />
           </mesh>
-          <Limb len={0.16} r={0.062 * ls} y0={0.02} mat={mats.skin} />
+          <Taper len={0.13} r0={0.054 * ls} r1={0.058 * ls} y0={0.02} mat={mats.skin} />
           <group ref={setPair('ankle', i)} position={[0, -M.shin, 0]}>
             {/* boot: bottom sits exactly at ankle - FOOT_HEIGHT */}
             <mesh position={[0, -FOOT_HEIGHT / 2 + 0.008, 0.05]} material={mats.boot}>
@@ -479,12 +528,7 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
         {leg(1)}
         <group ref={set('spine')} position={[0, 0.05, 0]}>
           <group ref={set('chest')}>
-            <mesh position={[0, 0.1, 0]} scale={[1.05, 1, 0.7]} material={mats.shirt}>
-              <capsuleGeometry args={[M.waistRadius, 0.1, 6, 16]} />
-            </mesh>
-            <mesh position={[0, 0.3, 0]} scale={[1.14, 1, M.chestDepth]} material={mats.shirt}>
-              <capsuleGeometry args={[M.chestRadius, 0.16, 8, 18]} />
-            </mesh>
+            <mesh geometry={torsoGeo(M.waistRadius, M.chestRadius)} scale={[1.12, 1, M.chestDepth * 1.08]} material={mats.shirt} />
             {/* training top: contrasting shoulder panel */}
             {training && (
               <mesh position={[0, 0.41, 0]} scale={[1.16, 0.45, M.chestDepth + 0.02]} material={mats.trim}>
@@ -507,12 +551,25 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
           {arm(0)}
           {arm(1)}
           <group position={[0, 0.5, 0]}>
-            <mesh position={[0, 0.04, 0]} material={mats.skin}>
-              <cylinderGeometry args={[0.045, 0.05, 0.1, 12]} />
+            <mesh position={[0, 0.045, 0]} material={mats.skin}>
+              <cylinderGeometry args={[0.042, 0.055, 0.12, 12]} />
             </mesh>
             <group ref={set('head')} position={[0, 0.09, 0]}>
-              <mesh position={[0, headR * 0.92, 0.005]} scale={[0.9, 1.08, 1]} material={mats.skin}>
+              <mesh position={[0, headR * 0.95, 0.005]} scale={[0.86, 1.06, 0.98]} material={mats.skin}>
                 <sphereGeometry args={[headR, 24, 18]} />
+              </mesh>
+              {/* jaw / chin */}
+              <mesh position={[0, headR * 0.42, headR * 0.28]} scale={[0.68, 0.55, 0.72]} material={mats.skin}>
+                <sphereGeometry args={[headR, 18, 12]} />
+              </mesh>
+              {/* brows + mouth */}
+              {[-1, 1].map((s2) => (
+                <mesh key={'b' + s2} position={[s2 * 0.036, headR * 1.14, headR * 0.84]} rotation={[0, 0, s2 * -0.12]} material={mats.hair}>
+                  <boxGeometry args={[0.03, 0.007, 0.01]} />
+                </mesh>
+              ))}
+              <mesh position={[0, headR * 0.5, headR * 0.93]} material={mats.eye}>
+                <boxGeometry args={[0.032, 0.005, 0.006]} />
               </mesh>
               {/* hair cap */}
               <mesh position={[0, headR * 0.98, -0.006]} scale={[0.95, 1.06, 1.04]} rotation={[-0.25, 0, 0]} material={mats.hair}>

@@ -11,6 +11,27 @@ import { connect, useNet } from '../../net/netClient'
 import { ChatPanel } from './ChatPanel'
 import { audio } from '../../audio/audioEngine'
 
+/** Small UI preference kept in this browser only (falls back silently when storage is blocked). */
+function usePref(key: string, initial: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('tod.ui.' + key)
+      return raw === null ? initial : raw === '1'
+    } catch {
+      return initial
+    }
+  })
+  const set = (nv: boolean) => {
+    setV(nv)
+    try {
+      localStorage.setItem('tod.ui.' + key, nv ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+  return [v, set]
+}
+
 function requestLock() {
   const canvas = document.querySelector('canvas[data-engine]') ?? document.querySelector('.scene canvas')
   ;(canvas as HTMLCanvasElement | null)?.requestPointerLock?.()?.catch?.(() => {})
@@ -79,7 +100,7 @@ function Welcome() {
 function QuickTravel() {
   const zone = useTour((s) => s.zone)
   const requestTeleport = useTour((s) => s.requestTeleport)
-  const [open, setOpen] = useState(() => window.innerWidth > 760)
+  const [open, setOpen] = usePref('quick', false)
   return (
     <nav className={`panel quick ${open ? '' : 'collapsed'}`} aria-label="빠른 이동">
       <button className="panel-title quick-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -99,6 +120,18 @@ function QuickTravel() {
         </button>
       ))}
     </nav>
+  )
+}
+
+function MapPanel() {
+  const [open, setOpen] = usePref('map', true)
+  return (
+    <div className={`panel map-panel ${open ? '' : 'collapsed'}`}>
+      <button className="panel-title quick-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+        지도 {open ? '▴' : '▾'}
+      </button>
+      {open && <Minimap />}
+    </div>
   )
 }
 
@@ -178,6 +211,18 @@ export function NavigationUI() {
   const netName = useNet((s) => (s.status === 'online' ? s.myName : null))
   const nickname = netName ?? localNick
   const focused = focusedId ? INTERACTABLE_BY_ID[focusedId] : null
+  // controls help: shown for the first moments of the tour, then folds into a small "? 조작법" button
+  const [helpOpen, setHelpOpen] = useState(true)
+  useEffect(() => {
+    if (!started) return
+    const t = window.setTimeout(() => setHelpOpen(false), 15000)
+    return () => window.clearTimeout(t)
+  }, [started])
+  // the "click to look around" hint disappears for good once the mouse has been captured
+  const [everLocked, setEverLocked] = useState(false)
+  useEffect(() => {
+    if (locked) setEverLocked(true)
+  }, [locked])
 
   if (!started) return <Welcome />
 
@@ -191,9 +236,7 @@ export function NavigationUI() {
       </header>
 
       <aside className="hud-right">
-        <div className="panel map-panel">
-          <Minimap />
-        </div>
+        <MapPanel />
         <QuickTravel />
       </aside>
 
@@ -240,14 +283,19 @@ export function NavigationUI() {
         </div>
       )}
 
-      {!touch && !locked && !infoId && !customizing && (
+      {!touch && !locked && !infoId && !customizing && !everLocked && (
         <button className="unlock-hint" onClick={requestLock}>
           화면을 클릭하면 마우스로 카메라를 돌릴 수 있습니다 (또는 드래그)
         </button>
       )}
 
-      {!touch && (
-        <footer className="panel help">
+      {!touch && !helpOpen && (
+        <button className="panel help-mini" onClick={() => setHelpOpen(true)}>
+          <kbd>?</kbd> 조작법
+        </button>
+      )}
+      {!touch && helpOpen && (
+        <footer className="panel help" onClick={() => setHelpOpen(false)} title="눌러서 접기">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동</span>
           <span><kbd>Shift</kbd> 달리기</span>
           <span><kbd>Space</kbd> 점프</span>
@@ -257,6 +305,7 @@ export function NavigationUI() {
           <span><kbd>E</kbd> 상호작용</span>
           <span><kbd>1-7</kbd> 빠른 이동</span>
           <span><kbd>ESC</kbd> 마우스 해제</span>
+          <span className="help-close">접기 ✕</span>
         </footer>
       )}
       {!touch && <div className="legal">비공식 팬 프로젝트 · 구단과 무관 · 전광판 점수는 DEMO</div>}

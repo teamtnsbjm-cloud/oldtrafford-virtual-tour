@@ -197,25 +197,6 @@ function Dugouts() {
   )
 }
 
-/** The red extendable canopy just outside the tunnel mouth. */
-function TunnelCanopy() {
-  const ribs = 6
-  return (
-    <group position={[0, 0, 41.6]}>
-      {Array.from({ length: ribs }).map((_, i) => (
-        <mesh key={i} position={[0, 0, -i * 0.7 - 0.2]} rotation={[0, 0, 0]} castShadow>
-          <torusGeometry args={[2.1, 0.06, 6, 24, Math.PI]} />
-          <meshStandardMaterial color="#9a0d16" roughness={0.6} />
-        </mesh>
-      ))}
-      <mesh position={[0, 0, -(ribs - 1) * 0.35 - 0.2]} rotation={[-Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[2.12, 2.12, (ribs - 1) * 0.7, 24, 1, true, -Math.PI / 2, Math.PI]} />
-        <meshStandardMaterial color="#c4141c" roughness={0.65} side={THREE.DoubleSide} transparent opacity={0.92} />
-      </mesh>
-    </group>
-  )
-}
-
 export function StadiumPitch({ match }: { match: MatchData | null }) {
   const grass = useMemo(() => pitchTexture(), [])
   const blades = useMemo(() => {
@@ -236,7 +217,6 @@ export function StadiumPitch({ match }: { match: MatchData | null }) {
       {[-1, 1].flatMap((sx) => [-1, 1].map((sz) => <CornerFlag key={`${sx}${sz}`} x={(sx * PITCH_LENGTH) / 2} z={(sz * PITCH_WIDTH) / 2} />))}
       <AdBoards />
       <Dugouts />
-      <TunnelCanopy />
       {SCOREBOARDS.map((s, i) => (
         <Scoreboard key={i} data={match} position={s.position} rotationY={s.rotY} />
       ))}

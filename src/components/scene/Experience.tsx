@@ -12,6 +12,7 @@ import { StadiumExterior } from './StadiumExterior'
 import { StadiumInterior } from './StadiumInterior'
 import { StadiumPitch } from './StadiumPitch'
 import { Balls } from './Balls'
+import { InteriorProps } from './InteriorProps'
 import { StadiumSeating } from './StadiumSeating'
 
 /**
@@ -34,6 +35,7 @@ export function Experience() {
       <Balls />
       <StadiumInterior />
       <MegaStore />
+      <InteriorProps />
       {/* order matters: physics → camera → avatar pose */}
       <PlayerController />
       <ThirdPersonCamera />

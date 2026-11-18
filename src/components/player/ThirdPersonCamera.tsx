@@ -39,8 +39,6 @@ function cameraBlocked(x: number, y: number, z: number) {
   const d = bowlDistance(x, z)
   const clearance = d > 0.3 && d < OUTER_D ? 1.05 : CAM_RADIUS
   if (y < groundAt(x, z, y) + clearance) return true
-  // red tunnel canopy (half-cylinder r≈2.1 along Z just outside the tunnel mouth)
-  if (z > 37.8 && z < 41.8 && Math.abs(Math.hypot(x, y) - 2.12) < 0.3) return true
   return hitsBox(x, y, z)
 }
 
@@ -67,12 +65,17 @@ export function ThirdPersonCamera() {
   const revealT = useRef(0)
   const exposure = useRef(1)
   const snap = useRef(true)
+  /** 1 while the walk-out cinematic plays; drops to 0 quickly once the visitor takes control */
+  const cineGain = useRef(1)
+  const skipCine = useRef(false)
+  const shoulder = useRef(0)
 
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     const el = gl.domElement
     const onMouseMove = (e: MouseEvent) => {
       if (detectTouch() && !document.pointerLockElement) return
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 4 && (document.pointerLockElement === el || drag.current)) skipCine.current = true
       if (document.pointerLockElement === el) {
         playerState.yaw -= e.movementX * LOOK_SENS
         playerState.pitch += e.movementY * LOOK_SENS
@@ -106,6 +109,7 @@ export function ThirdPersonCamera() {
       const cur = { x: e.clientX, y: e.clientY }
       pointers.set(e.pointerId, cur)
       if (pointers.size === 1) {
+        if (Math.abs(cur.x - prev.x) + Math.abs(cur.y - prev.y) > 4) skipCine.current = true
         playerState.yaw -= (cur.x - prev.x) * DRAG_SENS
         playerState.pitch = THREE.MathUtils.clamp(playerState.pitch + (cur.y - prev.y) * DRAG_SENS, PITCH_MIN, PITCH_MAX)
       } else if (pointers.size === 2) {
@@ -139,6 +143,7 @@ export function ThirdPersonCamera() {
     const onWheel = (e: WheelEvent) => {
       if (!useTour.getState().started) return
       e.preventDefault()
+      skipCine.current = true
       playerState.camDist = THREE.MathUtils.clamp(playerState.camDist * Math.exp(e.deltaY * 0.0012), MIN_DIST, MAX_DIST)
     }
     const onLockChange = () => {
@@ -147,7 +152,12 @@ export function ThirdPersonCamera() {
     }
     const onTeleport = () => {
       snap.current = true
+      skipCine.current = true
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Escape' || e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyE') skipCine.current = true
+    }
+    window.addEventListener('keydown', onKey)
     window.addEventListener('mousemove', onMouseMove)
     el.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mouseup', onMouseUp)
@@ -161,6 +171,7 @@ export function ThirdPersonCamera() {
       el.removeEventListener('wheel', onWheel)
       document.removeEventListener('pointerlockchange', onLockChange)
       window.removeEventListener('tod:teleport', onTeleport)
+      window.removeEventListener('keydown', onKey)
       el.removeEventListener('pointerdown', onPointerDown)
       el.removeEventListener('pointermove', onPointerMove)
       el.removeEventListener('pointerup', onPointerUp)
@@ -171,6 +182,7 @@ export function ThirdPersonCamera() {
   const target = new THREE.Vector3()
   const dir = new THREE.Vector3()
   const aim = new THREE.Vector3()
+  const right = new THREE.Vector3()
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
@@ -189,15 +201,23 @@ export function ThirdPersonCamera() {
     }
 
     // desired orbit direction (from pivot toward camera)
-    const yaw = playerState.yaw
+    let yaw = playerState.yaw
     // on the stands look down over the rows instead of skimming through them
     // walk-out cinematic: pull back and rise to reveal the bowl, then settle (bell curve over ~3.3 s)
-    const cine = revealT.current > 0 ? Math.sin(Math.PI * (1 - revealT.current)) : 0
-    const pitch = (playerState.zone === 'stands' ? Math.max(playerState.pitch, 0.42) : playerState.pitch) + cine * 0.2
+    if (skipCine.current && revealT.current > 0) cineGain.current = Math.max(0, cineGain.current - dt * 3)
+    if (revealT.current > 0 && cineGain.current <= 0) revealT.current = 0
+    const cine = revealT.current > 0 ? Math.sin(Math.PI * (1 - revealT.current)) * cineGain.current : 0
+    // …and orbit once around the avatar (behind → side → front → behind), rising as it goes
+    if (revealT.current > 0) {
+      const u = 1 - revealT.current
+      const sweep = Math.PI * 2 * (u * u * (3 - 2 * u))
+      yaw += Math.atan2(Math.sin(sweep), Math.cos(sweep)) * cineGain.current
+    }
+    const pitch = (playerState.zone === 'stands' ? Math.max(playerState.pitch, 0.42) : playerState.pitch) + cine * 0.32
     dir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
 
     const zone = playerState.zone
-    const wanted = Math.min(playerState.camDist + cine * 6, ZONE_MAX_DIST[zone] ?? MAX_DIST + 6)
+    const wanted = Math.min(Math.max(playerState.camDist, 3.2) * (revealT.current > 0 ? 1 : 0) + playerState.camDist * (revealT.current > 0 ? 0 : 1) + cine * 5, ZONE_MAX_DIST[zone] ?? MAX_DIST + 6)
 
     // ray-march from the pivot outward; stop before the first solid sample
     let allowed = wanted
@@ -216,8 +236,20 @@ export function ThirdPersonCamera() {
     snap.current = false
 
     camera.position.copy(pivot.current).addScaledVector(dir, dist.current)
+    // over-the-shoulder offset when the camera is close (tunnel, dressing room…), so the
+    // avatar sits left of centre and what lies ahead (e.g. the tunnel mouth) stays visible
+    right.set(Math.cos(yaw), 0, -Math.sin(yaw))
+    let wantShoulder = 0.55 * THREE.MathUtils.clamp((3.8 - dist.current) / 1.6, 0, 1)
+    for (let k = 0; k < 3 && wantShoulder > 0.02; k++) {
+      const cx = camera.position.x + right.x * wantShoulder
+      const cz = camera.position.z + right.z * wantShoulder
+      if (!cameraBlocked(cx, camera.position.y, cz)) break
+      wantShoulder *= 0.5
+    }
+    shoulder.current += (wantShoulder - shoulder.current) * (1 - Math.exp(-dt * 6))
+    camera.position.addScaledVector(right, shoulder.current)
     // aim slightly above the pivot (less when very close, so we don't stare at the ceiling)
-    aim.copy(pivot.current)
+    aim.copy(pivot.current).addScaledVector(right, shoulder.current)
     aim.y += AIM_UP * THREE.MathUtils.clamp(dist.current / 3, 0.3, 1)
     camera.lookAt(aim)
 
@@ -225,13 +257,15 @@ export function ThirdPersonCamera() {
     if (zone !== lastZone.current) {
       if (lastZone.current === 'tunnel' && zone === 'pitch') {
         revealT.current = 1
+        cineGain.current = 1
+        skipCine.current = false
         audio.cheer()
-        st.showBanner('THE THEATRE OF DREAMS', '메인 경기장에 입장했습니다')
+        st.showBanner('THE THEATRE OF DREAMS', '메인 경기장에 입장했습니다 · 시점을 움직이면 연출이 바로 끝납니다')
       }
       lastZone.current = zone
       st.setZone(zone)
     }
-    revealT.current = Math.max(0, revealT.current - dt * 0.3)
+    revealT.current = Math.max(0, revealT.current - dt * 0.22)
     let targetFov = 60
     let targetExp = 1
     if (zone === 'tunnel') {

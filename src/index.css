@@ -66,7 +66,7 @@ kbd {
   border-radius: 50%; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); pointer-events: none;
 }
 .prompt {
-  position: fixed; left: 50%; top: calc(50% + 34px); transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%);
   padding: 8px 14px; border-radius: 999px; background: rgba(208, 20, 31, 0.9); font-size: 14px; font-weight: 600;
   pointer-events: none; white-space: nowrap; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
@@ -235,4 +235,20 @@ kbd {
 .tbtn { -webkit-touch-callout: none; -webkit-user-select: none; }
 @media (max-width: 760px) {
   .prompt { display: none; }
+}
+
+/* ---- Phase 3: lighter HUD ---- */
+.hud-right { width: 200px; }
+.map-panel { display: flex; flex-direction: column; gap: 4px; }
+.map-panel.collapsed { padding: 8px 10px; }
+.map-panel .minimap { width: 180px !important; height: 180px !important; }
+.help-mini { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); }
+.help { pointer-events: auto; cursor: pointer; }
+.help-close { color: rgba(255, 255, 255, 0.5); }
+@media (max-width: 900px) {
+  .help-mini { display: none; }
+}
+@media (max-width: 760px) {
+  .hud-right { width: 140px; }
+  .map-panel .minimap { width: 128px !important; height: 128px !important; }
 }
