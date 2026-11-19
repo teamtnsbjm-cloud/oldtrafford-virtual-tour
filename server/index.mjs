@@ -92,7 +92,7 @@ function sanitizeCfg(c) {
     if (typeof c[k] === 'string' && COLOR.test(c[k])) out[k] = c[k]
   }
   if (c.modelId === 'athlete' || c.modelId === 'slim') out.modelId = c.modelId
-  if (['jersey', 'longsleeve', 'training'].includes(c.topStyle)) out.topStyle = c.topStyle
+  if (['jersey', 'longsleeve', 'training', 'cardigan'].includes(c.topStyle)) out.topStyle = c.topStyle
   const n = num(c.number, 1, 99)
   if (n !== null) out.number = Math.round(n)
   return out

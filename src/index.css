@@ -252,3 +252,6 @@ kbd {
   .hud-right { width: 140px; }
   .map-panel .minimap { width: 128px !important; height: 128px !important; }
 }
+
+.cz-preset { padding: 9px 10px; border-radius: 9px; border: 1px solid rgba(243, 169, 198, 0.6); background: rgba(243, 169, 198, 0.18); color: #ffd6e6; font-weight: 700; font-size: 13px; }
+.cz-preset:hover { background: rgba(243, 169, 198, 0.3); }

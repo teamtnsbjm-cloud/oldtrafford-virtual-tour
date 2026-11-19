@@ -5,7 +5,7 @@ import { playerState } from '../../state/playerState'
 import { useAvatar, type AvatarConfig } from '../../state/avatarStore'
 import { selfBubble, useNet } from '../../net/netClient'
 import { AVATAR_MODELS, FOOT_HEIGHT, type ProceduralModel } from './avatarModels'
-import { DISPLAY_FONT, UI_FONT } from '../../world/textures'
+import { DISPLAY_FONT, grainTexture, UI_FONT } from '../../world/textures'
 import { audio, type Surface } from '../../audio/audioEngine'
 import type { ZoneId } from '../../world/layout'
 
@@ -64,9 +64,10 @@ function backPrint(number: number, name: string, shirt: string) {
  * Face decal laid over the head sphere (equirectangular: u = around, v = top→bottom).
  * The front of the head (+Z) is at u = 0.25.
  */
-let faceTex: THREE.CanvasTexture | null = null
-function faceTexture() {
-  if (faceTex) return faceTex
+const faceTexCache: Record<string, THREE.CanvasTexture> = {}
+function faceTexture(variant: 'soft' | 'grin' = 'soft') {
+  const hit = faceTexCache[variant]
+  if (hit) return hit
   const W = 1024
   const H = 512
   const c = document.createElement('canvas')
@@ -93,15 +94,43 @@ function faceTexture() {
     ctx.arc(cx + sx * eyeDX, eyeY + 8, 15, Math.PI * 1.15, Math.PI * 1.85)
     ctx.stroke()
   }
-  // small smile
-  ctx.lineWidth = 6
-  ctx.beginPath()
-  ctx.arc(cx, H * 0.6, 16, Math.PI * 0.2, Math.PI * 0.8)
-  ctx.stroke()
-  faceTex = new THREE.CanvasTexture(c)
-  faceTex.colorSpace = THREE.SRGBColorSpace
-  faceTex.anisotropy = 8
-  return faceTex
+  if (variant === 'grin') {
+    // big open smile with teeth
+    ctx.fillStyle = '#5a1f1f'
+    ctx.beginPath()
+    ctx.moveTo(cx - 38, H * 0.605)
+    ctx.quadraticCurveTo(cx, H * 0.605 + 4, cx + 38, H * 0.605)
+    ctx.quadraticCurveTo(cx, H * 0.605 + 52, cx - 38, H * 0.605)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.moveTo(cx - 33, H * 0.607)
+    ctx.quadraticCurveTo(cx, H * 0.607 + 4, cx + 33, H * 0.607)
+    ctx.lineTo(cx + 28, H * 0.607 + 13)
+    ctx.quadraticCurveTo(cx, H * 0.607 + 17, cx - 28, H * 0.607 + 13)
+    ctx.closePath()
+    ctx.fill()
+    // little pink heart sticker on the cheek
+    const hx = cx + W * 0.085
+    const hy = H * 0.565
+    ctx.fillStyle = '#f06aa0'
+    ctx.beginPath()
+    ctx.moveTo(hx, hy + 12)
+    ctx.bezierCurveTo(hx - 22, hy - 2, hx - 10, hy - 18, hx, hy - 6)
+    ctx.bezierCurveTo(hx + 10, hy - 18, hx + 22, hy - 2, hx, hy + 12)
+    ctx.fill()
+  } else {
+    // small smile
+    ctx.lineWidth = 6
+    ctx.beginPath()
+    ctx.arc(cx, H * 0.6, 16, Math.PI * 0.2, Math.PI * 0.8)
+    ctx.stroke()
+  }
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 8
+  faceTexCache[variant] = tex
+  return tex
 }
 
 function nameTag(name: string) {
@@ -143,6 +172,10 @@ function useMaterials(cfg: AvatarConfig) {
       eye: new THREE.MeshStandardMaterial({ color: '#141010', roughness: 0.2 }),
       print: new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
       face: new THREE.MeshStandardMaterial({ map: faceTexture(), transparent: true, roughness: 0.6, depthWrite: false }),
+      fuzzy: new THREE.MeshStandardMaterial({ roughness: 1, bumpMap: fuzzBump(), bumpScale: 3, side: THREE.DoubleSide }),
+      pearl: new THREE.MeshStandardMaterial({ color: '#f6bfd3', roughness: 0.25, metalness: 0.1 }),
+      pinkGem: new THREE.MeshStandardMaterial({ color: '#f27aa8', roughness: 0.2, metalness: 0.15, emissive: '#7a1e44', emissiveIntensity: 0.25 }),
+      gold: new THREE.MeshStandardMaterial({ color: '#e2bd6a', roughness: 0.3, metalness: 0.9 }),
     }),
     [],
   )
@@ -153,6 +186,9 @@ function useMaterials(cfg: AvatarConfig) {
     mats.sock.color.set(cfg.sockColor)
     mats.skin.color.set(cfg.skinTone)
     mats.hair.color.set(cfg.hairColor)
+    mats.fuzzy.color.set(cfg.shirtColor)
+    mats.face.map = faceTexture(cfg.topStyle === 'cardigan' ? 'grin' : 'soft')
+    mats.face.needsUpdate = true
     mats.print.map = backPrint(cfg.number, cfg.nickname, cfg.shirtColor)
     mats.print.needsUpdate = true
   }, [mats, cfg])
@@ -234,6 +270,58 @@ function backPrintGeo(waist: number, chest: number) {
   const g = new THREE.LatheGeometry(pts, 20, Math.PI - 0.8, 1.6)
   backCache.set(key, g)
   return g
+}
+
+function fuzzBump() {
+  const t = grainTexture().clone()
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.repeat.set(5, 3)
+  t.needsUpdate = true
+  return t
+}
+
+/** Open-front cardigan shell that follows the torso and drops over the hips. */
+const cardiganCache = new Map<string, THREE.LatheGeometry>()
+function cardiganGeo(waist: number, chest: number) {
+  const key = waist.toFixed(3) + '|' + chest.toFixed(3)
+  const hit = cardiganCache.get(key)
+  if (hit) return hit
+  const prof = torsoProfile(waist, chest).slice(1, -1) // drop the closed bottom/top points
+  const pts = [new THREE.Vector2(waist * 1.16, -0.17), new THREE.Vector2(waist * 1.1, -0.08), ...prof.map(([r, y]) => new THREE.Vector2(r, y))]
+  // front (+Z, phi = 0) stays open so the white tee shows
+  const g = new THREE.LatheGeometry(pts, 28, 0.42, Math.PI * 2 - 0.84)
+  g.computeVertexNormals()
+  cardiganCache.set(key, g)
+  return g
+}
+
+let heartGeoCache: THREE.ExtrudeGeometry | null = null
+function heartGeo() {
+  if (heartGeoCache) return heartGeoCache
+  const s = new THREE.Shape()
+  s.moveTo(0, -0.5)
+  s.bezierCurveTo(-0.9, 0.05, -0.45, 0.75, 0, 0.3)
+  s.bezierCurveTo(0.45, 0.75, 0.9, 0.05, 0, -0.5)
+  heartGeoCache = new THREE.ExtrudeGeometry(s, { depth: 0.25, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 2 })
+  heartGeoCache.translate(0, 0, -0.125)
+  return heartGeoCache
+}
+
+/** Ring of pearls; `droop` pulls the front of the loop down (necklace). */
+function Pearls({ rx, rz, n, r, droop = 0, mat }: { rx: number; rz: number; n: number; r: number; droop?: number; mat: THREE.Material }) {
+  return (
+    <>
+      {Array.from({ length: n }).map((_, i) => {
+        const a = (i / n) * Math.PI * 2
+        const front = (1 + Math.cos(a)) / 2
+        return (
+          <mesh key={i} position={[Math.sin(a) * (rx + front * droop * 0.5), -front * front * droop, Math.cos(a) * (rz + front * droop * 0.55)]} material={mat}>
+            <sphereGeometry args={[r, 8, 6]} />
+          </mesh>
+        )
+      })}
+    </>
+  )
 }
 
 /** V-shaped torso: waist -> ribcage -> sloping shoulders -> neck base. */
@@ -519,18 +607,21 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
   const ls = M.limbScale
   const longSleeve = cfg.topStyle === 'longsleeve'
   const training = cfg.topStyle === 'training'
-  const sleeveMat = training ? mats.trim : mats.shirt
+  const cardigan = cfg.topStyle === 'cardigan'
+  const longTop = longSleeve || training || cardigan
+  const sleeveMat = cardigan ? mats.fuzzy : training ? mats.trim : mats.shirt
+  const CARD = 1.07 // cardigan shell scale over the tee
 
   const arm = (i: 0 | 1) => {
     const sx = i === 0 ? 1 : -1
     return (
       <group ref={setPair('shoulder', i)} position={[sx * M.shoulder, 0.43, 0]}>
-        <mesh material={mats.shirt} position={[-sx * 0.012, -0.012, 0]} scale={[0.9, 1.0, 1.0]}>
+        <mesh material={cardigan ? mats.fuzzy : mats.shirt} position={[-sx * 0.012, -0.012, 0]} scale={cardigan ? [1.0, 1.05, 1.1] : [0.9, 1.0, 1.0]}>
           <sphereGeometry args={[0.07 * ls, 16, 12]} />
         </mesh>
         {/* sleeve */}
-        {longSleeve || training ? (
-          <Taper len={M.upperArm} r0={0.06 * ls} r1={0.046 * ls} bulge={0.006} mat={sleeveMat} />
+        {longTop ? (
+          <Taper len={M.upperArm} r0={(cardigan ? 0.07 : 0.06) * ls} r1={(cardigan ? 0.058 : 0.046) * ls} bulge={0.006} mat={sleeveMat} />
         ) : (
           <>
             <Taper len={0.13} r0={0.066 * ls} r1={0.062 * ls} mat={mats.shirt} />
@@ -541,10 +632,21 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
           </>
         )}
         <group ref={setPair('elbow', i)} position={[0, -M.upperArm, 0]}>
-          <mesh material={longSleeve || training ? sleeveMat : mats.skin}>
-            <sphereGeometry args={[0.041 * ls, 12, 10]} />
+          <mesh material={longTop ? sleeveMat : mats.skin}>
+            <sphereGeometry args={[(cardigan ? 0.056 : 0.041) * ls, 12, 10]} />
           </mesh>
-          <Taper len={M.forearm} r0={0.045 * ls} r1={0.031 * ls} bulge={0.006 * ls} bulgeAt={0.25} mat={longSleeve || training ? sleeveMat : mats.skin} />
+          <Taper len={M.forearm} r0={(cardigan ? 0.058 : 0.045) * ls} r1={(cardigan ? 0.05 : 0.031) * ls} bulge={0.006 * ls} bulgeAt={0.25} mat={longTop ? sleeveMat : mats.skin} />
+          {cardigan && (
+            <>
+              {/* white ruffled cuff + pearl bracelet */}
+              <mesh position={[0, -M.forearm + 0.005, 0]} material={mats.trim}>
+                <cylinderGeometry args={[0.046 * ls, 0.058 * ls, 0.035, 14, 1, true]} />
+              </mesh>
+              <group position={[0, -M.forearm - 0.012, 0]}>
+                <Pearls rx={0.036 * ls} rz={0.036 * ls} n={11} r={0.011} mat={mats.pearl} />
+              </group>
+            </>
+          )}
           {(longSleeve || training) && (
             <mesh position={[0, -M.forearm + 0.02, 0]} material={training ? mats.shirt : mats.trim}>
               <cylinderGeometry args={[0.051 * ls, 0.051 * ls, 0.025, 12]} />
@@ -610,7 +712,19 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
         {leg(1)}
         <group ref={set('spine')} position={[0, 0.05, 0]}>
           <group ref={set('chest')}>
-            <mesh geometry={torsoGeo(M.waistRadius, M.chestRadius)} scale={[1.12, 1, M.chestDepth * 1.08]} material={mats.shirt} />
+            <mesh geometry={torsoGeo(M.waistRadius, M.chestRadius)} scale={[1.12, 1, M.chestDepth * 1.08]} material={cardigan ? mats.trim : mats.shirt} />
+            {cardigan && (
+              <>
+                <mesh geometry={cardiganGeo(M.waistRadius, M.chestRadius)} scale={[1.12 * CARD, 1, M.chestDepth * 1.08 * (CARD + 0.03)]} material={mats.fuzzy} />
+                {/* heart brooch on the left chest */}
+                <mesh geometry={heartGeo()} position={[0.105, 0.36, M.chestRadius * M.chestDepth * 1.2 + 0.012]} rotation={[-0.15, 0.55, 0]} scale={0.045} material={mats.pinkGem} />
+                {/* pearl necklace with a heart pendant */}
+                <group position={[0, 0.5, 0.006]}>
+                  <Pearls rx={0.068} rz={0.062} n={24} r={0.0128} droop={0.062} mat={mats.pearl} />
+                  <mesh geometry={heartGeo()} position={[0, -0.078, 0.112]} rotation={[-0.25, 0, 0]} scale={0.04} material={mats.pinkGem} />
+                </group>
+              </>
+            )}
             {/* training top: contrasting shoulder panel */}
             {training && (
               <mesh position={[0, 0.41, 0]} scale={[1.16, 0.45, M.chestDepth + 0.02]} material={mats.trim}>
@@ -626,15 +740,20 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
               <cylinderGeometry args={[M.waistRadius + 0.004, M.waistRadius + 0.004, 0.02, 20]} />
             </mesh>
             {/* back print: number + nickname (no club badge anywhere) */}
-            <mesh geometry={backPrintGeo(M.waistRadius, M.chestRadius)} scale={[1.12, 1, M.chestDepth * 1.08]} material={mats.print} userData={{ noShadow: true }} />
+            <mesh
+              geometry={backPrintGeo(M.waistRadius, M.chestRadius)}
+              scale={cardigan ? [1.12 * CARD * 1.01, 1, M.chestDepth * 1.08 * (CARD + 0.03) * 1.02] : [1.12, 1, M.chestDepth * 1.08]}
+              material={mats.print}
+              userData={{ noShadow: true }}
+            />
           </group>
           {arm(0)}
           {arm(1)}
           <group position={[0, 0.5, 0]}>
             <mesh position={[0, 0.045, 0]} material={mats.skin}>
-              <cylinderGeometry args={[0.042, 0.055, 0.12, 12]} />
+              <cylinderGeometry args={[0.045, 0.056, 0.1, 12]} />
             </mesh>
-            <group ref={set('head')} position={[0, 0.09, 0]}>
+            <group ref={set('head')} position={[0, 0.065, 0]} scale={1.13}>
               {/* smooth round head with a painted face (closed smiling eyes, small smile, blush) */}
               <mesh position={[0, headR * 0.98, 0]} scale={[0.96, 1, 0.96]} material={mats.skin}>
                 <sphereGeometry args={[headR, 32, 24]} />
@@ -648,9 +767,19 @@ export function AvatarRig({ cfg, src, local = false, getBubble }: {
               </mesh>
               {/* small ears */}
               {[-1, 1].map((e) => (
-                <mesh key={e} position={[e * headR * 0.95, headR * 0.92, 0]} scale={[0.45, 0.8, 0.6]} material={mats.skin}>
-                  <sphereGeometry args={[headR * 0.22, 10, 8]} />
-                </mesh>
+                <group key={e}>
+                  <mesh position={[e * headR * 0.95, headR * 0.92, 0]} scale={[0.45, 0.8, 0.6]} material={mats.skin}>
+                    <sphereGeometry args={[headR * 0.22, 10, 8]} />
+                  </mesh>
+                  {cardigan && (
+                    <group position={[e * headR * 0.99, headR * 0.7, 0.005]}>
+                      <mesh rotation={[0, Math.PI / 2, 0]} material={mats.gold}>
+                        <torusGeometry args={[0.013, 0.003, 6, 14]} />
+                      </mesh>
+                      <mesh geometry={heartGeo()} position={[0, -0.03, 0]} rotation={[0, e * Math.PI / 2, 0]} scale={0.024} material={mats.pinkGem} />
+                    </group>
+                  )}
+                </group>
               ))}
             </group>
           </group>

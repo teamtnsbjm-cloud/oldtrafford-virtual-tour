@@ -1,14 +1,14 @@
-import { useAvatar, type AvatarConfig } from '../../state/avatarStore'
+import { CARDIGAN_LOOK, useAvatar, type AvatarConfig } from '../../state/avatarStore'
 import { useTour } from '../../state/tourStore'
 import { AVATAR_MODELS, TOP_STYLES, type AvatarModelId, type TopStyle } from '../player/avatarModels'
 import { NicknameField } from './NicknameField'
 
-const SHIRTS = ['#c8102e', '#ffffff', '#111111', '#1d2a4a', '#f3c623', '#2e7d32']
+const SHIRTS = ['#f3a9c6', '#c8102e', '#ffffff', '#111111', '#1d2a4a', '#f3c623', '#2e7d32']
 const TRIMS = ['#ffffff', '#111111', '#f3c623', '#c8102e']
-const SHORTS = ['#ffffff', '#111111', '#c8102e', '#1d2a4a']
+const SHORTS = ['#ece6df', '#ffffff', '#111111', '#c8102e', '#1d2a4a']
 const SOCKS = ['#111111', '#ffffff', '#c8102e']
-const SKINS = ['#f1c9a5', '#d9a77f', '#a8714a', '#6b4128']
-const HAIRS = ['#2b1d14', '#111111', '#7a4a22', '#d8b46a']
+const SKINS = ['#f1c9a5', '#d9a77f', '#c9906b', '#a8714a', '#6b4128']
+const HAIRS = ['#1b1612', '#2b1d14', '#111111', '#7a4a22', '#d8b46a']
 
 function Swatches({ label, field, options }: { label: string; field: keyof AvatarConfig; options: string[] }) {
   const value = useAvatar((s) => s.config[field])
@@ -71,6 +71,10 @@ export function CustomizePanel() {
           />
         </label>
       </div>
+
+      <button className="cz-preset" onClick={() => update(CARDIGAN_LOOK)}>
+        💗 핑크 가디건 룩 한 번에 입기
+      </button>
 
       <div className="cz-row">
         <div className="cz-label">상의 스타일</div>
